@@ -1,43 +1,46 @@
-import random
-import torch
-import torch.optim as optim
-import torch.nn as nn
-from typing import List, Tuple, Union
-import gymnasium as gym
-from gymnasium import spaces
+import gym
+from gym import spaces
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from tqdm import tqdm
-import math
-import torch.nn.functional as F
-from collections import namedtuple
-import cProfile
 
 
 class ConnectFourEnv(gym.Env):
     metadata = {'render.modes': ['human']}
+    rewards = {
+        'win': 1000,
+        'draw': 500,
+        'nothing': -10,
+        'invalid': -1000,
+    }
 
     def __init__(self):
         super(ConnectFourEnv, self).__init__()
         self.rows = 6
         self.columns = 7
-        self.board = [[0] * self.columns for _ in range(self.rows)]
-        self.current_player = 1  # Player 1 starts
-        self.done = False
+        self.in_a_row = 4
         self.action_space = spaces.Discrete(self.columns)
         self.observation_space = spaces.Box(
             low=0, high=2, shape=(self.rows, self.columns), dtype=int)
-        self.playable_rows = [0] * self.columns
+        self.winner = 0
+        self.reset()
+
+    def flip_board(self):
+        self.board = [[3 - x if x != 0 else 0 for x in row]
+                      for row in self.board]
 
     def step(self, action):
         # Check if action is valid
-        if self.playable_rows[action] == self.rows or self.done:
-            return self.board, 0, True, {}
+        if self.playable_rows[action] == -1:
+            self.winner = 3 - self.current_player
+            return self.board, self.rewards['invalid'], True, {}
+
+        if self.done:
+            raise ValueError("Game is over, please reset the environment")
 
         # Find the next open row
         playable_row = self.playable_rows[action]
         self.board[playable_row][action] = self.current_player
-        self.playable_rows[action] += 1
+        self.playable_rows[action] -= 1
 
         reward, self.done = self.check_win(playable_row, action)
         self.current_player = 3 - self.current_player  # Switch player
@@ -45,7 +48,8 @@ class ConnectFourEnv(gym.Env):
 
     def reset(self):
         self.board = [[0] * self.columns for _ in range(self.rows)]
-        self.playable_rows = [0] * self.columns
+        self.playable_rows = [self.rows - 1] * self.columns
+        self.winner = 0
         self.current_player = 1
         self.done = False
         return self.board
@@ -90,174 +94,44 @@ class ConnectFourEnv(gym.Env):
                 if x < 0 or x >= self.rows or y < 0 or y >= self.columns or self.board[x][y] != self.current_player:
                     break
                 count += 1
-            if count >= 4:  # Found 4 in a row
-                return 1, True
+            if count >= self.in_a_row:
+                self.winner = self.current_player
+                return self.rewards['win'], True
 
         # Check for draw
         if all([x == self.rows for x in self.playable_rows]):
-            return 0.5, True
-        return 0, False
+            self.winner = 3 - self.current_player
+            return self.rewards['draw'], True
+        return self.rewards['nothing'], False
 
-
-class RandomAgent:
-    def __init__(self, action_space):
-        self.action_space = action_space
-
-    def choose_action(self, observation):
-        return self.action_space.sample()
-
-
-Transition = namedtuple(
-    'Transition', ('state', 'action', 'reward', 'next_state', 'done'))
-
-
-class DQN(nn.Module):
-    def __init__(self, input_shape, num_actions):
-        super(DQN, self).__init__()
-        self.net = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(input_shape[0] * input_shape[1], 128),
-            nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Linear(128, num_actions)
-        )
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class ReplayBuffer:
-    def __init__(self, capacity):
-        self.capacity = capacity
-        self.buffer: List[Transition] = []
-        self.position = 0
-
-    def push(self, state: torch.Tensor, action: torch.Tensor, reward, next_state: torch.Tensor, done):
-        action_tensor = torch.tensor(
-            [action], dtype=torch.long)  # Wrap action as a tensor
-        if len(self.buffer) < self.capacity:
-            self.buffer.append(None)
-        self.buffer[self.position] = Transition(
-            state, action_tensor, reward, next_state, done)
-        self.position = (self.position + 1) % self.capacity
-
-    def sample(self, batch_size):
-        # batched sampling
-        return random.sample(self.buffer, batch_size)
-
-    def __len__(self):
-        return len(self.buffer)
-
-
-Transition = namedtuple(
-    'Transition', ('state', 'action', 'reward', 'next_state', 'done'))
-
-
-class DQNAgent:
-    def __init__(self, state_dim, action_dim, replay_buffer, batch_size=128):
-        self.state_dim = state_dim
-        self.action_dim = action_dim
-        self.replay_buffer: ReplayBuffer = replay_buffer
-        self.policy_net = DQN(state_dim, action_dim)
-        self.target_net = DQN(state_dim, action_dim)
-        self.target_net.load_state_dict(self.policy_net.state_dict())
-        self.target_net.eval()  # Target net is not trained
-        self.optimizer = optim.Adam(self.policy_net.parameters())
-        self.steps_done = 0
-        self.epsilon_start = 1.0
-        self.epsilon_end = 0.01
-        self.epsilon_decay = 200
-        self.batch_size = batch_size
-        self.gamma = 0.999  # Discount factor
-
-    def choose_action(self, state, explore=True) -> int:
-        sample = random.random()
-        epsilon_threshold = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * \
-            math.exp(-1. * self.steps_done / self.epsilon_decay)
-        self.steps_done += 1
-        if sample > epsilon_threshold or not explore:
-            with torch.no_grad():
-                state = state.unsqueeze(0)
-                decision = self.policy_net(state)
-                return decision.max(1)[1].view(1, 1).item()
-        else:
-            return random.randrange(self.action_dim)
-
-    def optimize_model(self):
-        if len(self.replay_buffer) < self.batch_size:
-            return
-
-        # Sample a batch of experiences from the replay buffer
-        transitions = self.replay_buffer.sample(self.batch_size)
-        batch = Transition(*zip(*transitions))
-
-        # Separate the components of each transition
-        batch_states = torch.stack(batch.state).float()
-        batch_actions = torch.stack(batch.action).view(-1, 1).long()
-        batch_rewards = torch.tensor(batch.reward, dtype=torch.float)
-        batch_next_states = torch.stack(batch.next_state).float()
-        batch_dones = torch.tensor(batch.done, dtype=torch.float)
-
-        # Calculate current Q-values from the policy_net
-        current_q_values = self.policy_net(batch_states).gather(
-            1, batch_actions).squeeze(1)
-
-        # Calculate the maximum Q-value for the next states from the target_net
-        next_state_values = self.target_net(
-            batch_next_states).max(1)[0].detach()
-
-        # Apply (1 - done) to zero out the values for terminal states
-        next_state_values = next_state_values * (1 - batch_dones)
-
-        # Compute the expected Q values for the current state-action pairs
-        expected_q_values = (next_state_values * self.gamma) + batch_rewards
-
-        # Compute loss
-        loss = F.mse_loss(current_q_values, expected_q_values)
-
-        # Optimize the model
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
-        return loss.item()
-
-    def train(self, env, n_games, print_interval):
-        losses = []
-        for episode in tqdm(range(n_games)):
-            observation = env.reset()
-            observation = torch.tensor(observation, dtype=torch.float)
+    def play(self, agent1, agent2, n_games=1000, show_game=False, show_outcome=False):
+        # Play n games between two agents
+        results = {1: 0, 2: 0}
+        game_lengths = []
+        for _ in range(n_games):
+            self.reset()
             done = False
             while not done:
-                action = self.choose_action(observation)
-                next_observation, reward, done, info = env.step(action)
-                next_observation = torch.tensor(
-                    next_observation, dtype=torch.float)
+                if show_game:
+                    self.render()
 
-                reward = torch.tensor([reward], dtype=torch.float)
-                done_tensor = torch.tensor([done], dtype=torch.float)
+                action = agent1.choose_action()
+                _, reward, done, _ = self.step(action)
+                if done:
+                    break
 
-                self.replay_buffer.push(
-                    observation, action, reward, next_observation, done_tensor)
-                observation = next_observation
+                if show_game:
+                    self.render()
 
-                loss = self.optimize_model()
-                if loss is not None:
-                    losses.append(loss)
+                action = agent2.choose_action()
+                _, reward, done, _ = self.step(action)
 
-            if (episode + 1) % print_interval == 0 and len(losses) > 0:
-                avg_loss = sum(losses[-print_interval:]) / \
-                    len(losses[-print_interval:])
-                print(f"Episode {episode + 1}: Average Loss = {avg_loss}")
+            results[self.winner] += 1
+            game_lengths.append(
+                self.rows * (self.columns - 1) - sum(self.playable_rows))
 
+            if show_outcome or show_game:
+                self.render()
 
-# Initialize environment and agent
-env = ConnectFourEnv()
-replay_buffer = ReplayBuffer(10000)
-agent = DQNAgent(env.observation_space.shape,
-                 env.action_space.n, replay_buffer,
-                 batch_size=1)
-
-# Train the agent
-agent.train(env, 1000, 50)
+        avg_game_length = sum(game_lengths) / len(game_lengths)
+        return results, avg_game_length
