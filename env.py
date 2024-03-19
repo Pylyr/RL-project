@@ -4,15 +4,16 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import io
 from PIL import Image
+import tqdm
 
 
 class ConnectFourEnv(gym.Env):
     metadata = {'render.modes': ['human']}
     rewards = {
-        'win': 1000,
-        'draw': 500,
-        'nothing': -10,
-        'invalid': -1000,
+        'win': 1,
+        'draw': 0,
+        'nothing': 0,
+        'invalid': 0,
     }
 
     def __init__(self):
@@ -56,8 +57,8 @@ class ConnectFourEnv(gym.Env):
         self.done = False
         return self.board
 
-    def _render(self, mode='human'):
-        fig, ax = plt.subplots(figsize=(2, 2), dpi=80)  # Smaller figure size
+    def _render(self, mode='human', figsize=(10, 10)):
+        fig, ax = plt.subplots(figsize=figsize)
         # Draw the board
         for x in range(self.columns):
             for y in range(self.rows):
@@ -80,7 +81,7 @@ class ConnectFourEnv(gym.Env):
         return fig
 
     def render(self, mode='human'):
-        self._render(mode)
+        self._render(mode, figsize=(6, 6))
         plt.show()
 
     def to_image(self, save_path=None):
@@ -121,7 +122,7 @@ class ConnectFourEnv(gym.Env):
                 return self.rewards['win'], True
 
         # Check for draw
-        if all([x == self.rows for x in self.playable_rows]):
+        if all([x == -1 for x in self.playable_rows]):
             self.winner = 3 - self.current_player
             return self.rewards['draw'], True
         return self.rewards['nothing'], False
@@ -147,7 +148,7 @@ class ConnectFourEnv(gym.Env):
         # Play n games between two agents
         results = {1: 0, 2: 0}
         game_lengths = []
-        for _ in range(n_games):
+        for _ in tqdm.tqdm(range(n_games)):
             if start_board is None:
                 self.reset()
             else:
