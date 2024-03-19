@@ -2,6 +2,8 @@ import gym
 from gym import spaces
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import io
+from PIL import Image
 
 
 class ConnectFourEnv(gym.Env):
@@ -54,8 +56,8 @@ class ConnectFourEnv(gym.Env):
         self.done = False
         return self.board
 
-    def render(self, mode='human'):
-        fig, ax = plt.subplots()
+    def _render(self, mode='human'):
+        fig, ax = plt.subplots(figsize=(2, 2), dpi=80)  # Smaller figure size
         # Draw the board
         for x in range(self.columns):
             for y in range(self.rows):
@@ -74,7 +76,27 @@ class ConnectFourEnv(gym.Env):
         plt.grid()
         plt.xticks(range(self.columns))
         plt.yticks(range(self.rows))
+        plt.axis('off')
+        return fig
+
+    def render(self, mode='human'):
+        self._render(mode)
         plt.show()
+
+    def to_image(self, save_path=None):
+        fig = self._render()
+        # Save the figure to a buffer
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        plt.close(fig)
+        buf.seek(0)
+
+        # Convert buffer to a PIL Image
+        img = Image.open(buf)
+        if save_path:
+            img.save(save_path)
+        # buf.close()
+        return img
 
     def check_win(self, row, col):
         # Check only from the last move's position
@@ -104,19 +126,39 @@ class ConnectFourEnv(gym.Env):
             return self.rewards['draw'], True
         return self.rewards['nothing'], False
 
-    def play(self, agent1, agent2, n_games=1000, show_game=False, show_outcome=False):
+    def check_win_globally(self):
+        for row in range(self.rows):
+            for col in range(self.columns):
+                if self.board[row][col] != 0:
+                    _, done = self.check_win(row, col)
+                    if done:
+                        return True
+        return False
+
+    def load_board(self, board):
+        self.board = board
+        self.playable_rows = [self.rows - 1 - sum([1 for j in range(self.columns)
+                                                   if board[i][j] != 0]) for i in range(self.rows)]
+        self.current_player = 1 if sum(
+            [1 for row in board for cell in row if cell != 0]) % 2 == 0 else 2
+        self.done = self.check_win_globally()
+
+    def play(self, agent1, agent2, n_games=1000, show_game=False, show_outcome=False, start_board=None):
         # Play n games between two agents
         results = {1: 0, 2: 0}
         game_lengths = []
         for _ in range(n_games):
-            self.reset()
+            if start_board is None:
+                self.reset()
+            else:
+                self.load_board(start_board)
             done = False
             while not done:
                 if show_game:
                     self.render()
 
                 action = agent1.choose_action()
-                _, reward, done, _ = self.step(action)
+                _, _, done, _ = self.step(action)
                 if done:
                     break
 
@@ -124,7 +166,7 @@ class ConnectFourEnv(gym.Env):
                     self.render()
 
                 action = agent2.choose_action()
-                _, reward, done, _ = self.step(action)
+                _, _, done, _ = self.step(action)
 
             results[self.winner] += 1
             game_lengths.append(
@@ -135,3 +177,6 @@ class ConnectFourEnv(gym.Env):
 
         avg_game_length = sum(game_lengths) / len(game_lengths)
         return results, avg_game_length
+
+    def get_legal_actions(self):
+        return [col for col in range(self.columns) if self.playable_rows[col] != -1]
