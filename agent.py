@@ -1,4 +1,4 @@
-from env import ConnectFourEnv
+from connect_4_env import ConnectFourEnv
 import random
 
 

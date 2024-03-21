@@ -2,7 +2,7 @@ import math
 import random
 from typing import List, Tuple, Union, Optional, Any
 from agent import Agent
-from env import ConnectFourEnv
+from connect_4_env import ConnectFourEnv
 import math
 import copy
 
@@ -125,17 +125,30 @@ class MonteCarloTreeSearchAgent(Agent):
         self.n_iterations = n_iterations
         self.c = c
 
-    def choose_action(self, verbose=False) -> int:
+    def choose_action(self, verbose=False, select=True) -> int:
         # Run MCTS and choose the best action
-        mcts = MCTS(copy.deepcopy(self.env), c=self.c)
-        mcts.run(self.n_iterations)
+        self.mcts = MCTS(copy.deepcopy(self.env), c=self.c)
+        self.mcts.run(self.n_iterations)
         if verbose:
             print("The number of visits for each child node of the root:")
-            print([n.visits for n in mcts.root.children])
+            print([n.visits for n in self.mcts.root.children])
             print("Average reward for each child node of the root:")
             print([n.wins / n.visits if n.visits >
-                   0 else 0 for n in mcts.root.children])
-        best_move = mcts.best_child(mcts.root, eval=True).action
+                   0 else 0 for n in self.mcts.root.children])
+        best_move = self.mcts.best_child(self.mcts.root, eval=True).action
+
+        # if select and not self.mcts.root.is_terminal():
+        #     new_root = self.mcts.best_child(self.mcts.root, eval=False)
+        #     # Ensure the new root is not terminal and has children
+        #     if new_root and not new_root.is_terminal() and new_root.children:
+        #         self.mcts.root = new_root
+        #     else:
+        #         # Handle the case where a new non-terminal root cannot be found
+        #         # This might include reinitializing MCTS with the current state
+        #         # or handling the end of the game appropriately
+        #         print(
+        #             "No valid new root found. Game might be ending or requires handling.")
+
         return best_move
 
 

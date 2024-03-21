@@ -128,18 +128,33 @@ class ConnectFourEnv(gym.Env):
         return self.rewards['nothing'], False
 
     def check_win_globally(self):
+        # check if there is a win in the entire board without using the last move
         for row in range(self.rows):
             for col in range(self.columns):
-                if self.board[row][col] != 0:
-                    _, done = self.check_win(row, col)
-                    if done:
+                if self.board[row][col] == 0:
+                    continue
+                for dx, dy in [(0, 1), (1, 0), (1, 1), (1, -1)]:
+                    count = 1
+                    for i in range(1, 4):
+                        x, y = row + dx*i, col + dy*i
+                        if x < 0 or x >= self.rows or y < 0 or y >= self.columns or self.board[x][y] != self.board[row][col]:
+                            break
+                        count += 1
+                    for i in range(1, 4):
+                        x, y = row - dx*i, col - dy*i
+                        if x < 0 or x >= self.rows or y < 0 or y >= self.columns or self.board[x][y] != self.board[row][col]:
+                            break
+                        count += 1
+                    if count >= self.in_a_row:
+                        self.winner = self.board[row][col]
                         return True
         return False
 
     def load_board(self, board):
         self.board = board
-        self.playable_rows = [self.rows - 1 - sum([1 for j in range(self.columns)
-                                                   if board[i][j] != 0]) for i in range(self.rows)]
+        for i in range(self.columns):
+            self.playable_rows[i] = 5 - \
+                sum([1 for j in range(self.rows) if self.board[j][i] != 0])
         self.current_player = 1 if sum(
             [1 for row in board for cell in row if cell != 0]) % 2 == 0 else 2
         self.done = self.check_win_globally()
