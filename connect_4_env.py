@@ -1,5 +1,4 @@
-import gym
-from gym import spaces
+import gymnasium as gym
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import io
@@ -21,8 +20,8 @@ class ConnectFourEnv(gym.Env):
         self.rows = 6
         self.columns = 7
         self.in_a_row = 4
-        self.action_space = spaces.Discrete(self.columns)
-        self.observation_space = spaces.Box(
+        self.action_space = gym.spaces.Discrete(self.columns)
+        self.observation_space = gym.spaces.Box(
             low=0, high=2, shape=(self.rows, self.columns), dtype=int)
         self.winner = 0
         self.reset()
@@ -192,7 +191,14 @@ class ConnectFourEnv(gym.Env):
                 self.render()
 
         avg_game_length = sum(game_lengths) / len(game_lengths)
-        return results, avg_game_length
+
+        bug = False
+        if results[1] == n_games:
+            print('Just as a safeguard, print a game')
+            self.render()
+            bug = True
+
+        return results, avg_game_length, bug
 
     def get_legal_actions(self):
         return [col for col in range(self.columns) if self.playable_rows[col] != -1]

@@ -73,21 +73,21 @@ class MCTS:
 
         if simulation_env.done:
             reward = 1 if simulation_env.winner == self.me else 0
-        else:
-            reward = 0
+            return reward
 
         while not simulation_env.done:
             possible_actions = simulation_env.get_legal_actions()
             action = random.choice(possible_actions)
-            _, reward, _, _ = simulation_env.step(action)
+            _, _, _, _ = simulation_env.step(action)
 
-        return reward
+        return simulation_env.winner == self.me
 
     def backpropagate(self, node: Node, result: float) -> None:
         # Update nodes with the simulation result up to the root
 
         while node is not None:
             node.visits += 1
+    
             if node.state.current_player != self.me:
                 node.wins += result
             else:
@@ -121,7 +121,7 @@ class MCTS:
 
 class MonteCarloTreeSearchAgent(Agent):
     def __init__(self, env: ConnectFourEnv, n_iterations: int = 100, c: float = 1.41):
-        super().__init__(env)
+        super().__init__(env, name=f"MCTS-{n_iterations}")
         self.n_iterations = n_iterations
         self.c = c
 
@@ -132,6 +132,7 @@ class MonteCarloTreeSearchAgent(Agent):
         if verbose:
             print("The number of visits for each child node of the root:")
             print([n.visits for n in self.mcts.root.children])
+            print([n.wins for n in self.mcts.root.children])
             print("Average reward for each child node of the root:")
             print([n.wins / n.visits if n.visits >
                    0 else 0 for n in self.mcts.root.children])
@@ -177,3 +178,4 @@ env = ConnectFourEnv()
 
 
 # env.play(monte, RandomAgent(env), n_games=1, show_game=True)
+
